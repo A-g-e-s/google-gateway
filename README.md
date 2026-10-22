@@ -1,0 +1,185 @@
+# ages/google-gateway
+
+PHP klient pro **Google Ads API** (REST, `https://googleads.googleapis.com`, verze `v26`).
+Zaměřený na **náklady a statistiky** (útrata, prokliky, zobrazení, konverze, PNO…) — celkem, po obdobích i po kampaních.
+
+- REST/JSON + dotazovací jazyk GAQL, bez gRPC a bez oficiální knihovny `googleads/google-ads-php`
+- Autentizace OAuth 2.0: refresh token → access token (platnost ~1 h, klient ho cachuje a reusuje)
+- Opakování při 429 / 503 (`Retry-After` nebo exponenciální čekání)
+- PHP 8.4+, Guzzle, framework-agnostic (volitelná PSR-16 cache pro sdílení tokenu mezi requesty)
+
+## Instalace
+
+```bash
+composer require ages/google-gateway
+```
+
+## Přístupové údaje
+
+Google Ads API potřebuje čtyři údaje + ID účtu:
+
+| Údaj | Kde ho získat |
+|------|---------------|
+| `developerToken` | Manažerský účet Google Ads (MCC) › **Nástroje › Centrum API**. Nový token má úroveň *Test* (jen testovací účty) — pro ostrý účet požádej o **Basic access** (schválení trvá pár dní). Developer token jde vydat jen v MCC účtu; když ho nemáš, založ MCC a propoj s ním účet e-shopu. |
+| `clientId`, `clientSecret` | [Google Cloud Console](https://console.cloud.google.com/) › nový projekt › **APIs & Services › Library** › zapnout *Google Ads API* › **Credentials › Create credentials › OAuth client ID** › typ **Desktop app**. Na *OAuth consent screen* přidej svůj e-mail mezi testovací uživatele (nebo aplikaci publikuj — u testovací aplikace refresh token po 7 dnech vyprší). |
+| `refreshToken` | Jednorázově přes `OAuth` helper (níže) pod uživatelem, který má přístup k účtu Google Ads. |
+| `customerId` | ID účtu Google Ads vpravo nahoře v rozhraní (`123-456-7890`, pomlčky nevadí). |
+| `loginCustomerId` | ID manažerského účtu (MCC), **pokud** máš k účtu přístup přes MCC. Při přímém přístupu nevyplňuj. |
+
+### Získání refresh tokenu
+
+```php
+use Ages\GoogleGateway\Auth\OAuth;
+
+// 1) otevři URL v prohlížeči a povol přístup
+echo OAuth::authorizationUrl($clientId), PHP_EOL;
+
+// 2) prohlížeč přesměruje na http://127.0.0.1/?code=…  (stránka se nenačte, to nevadí)
+//    zkopíruj hodnotu parametru code z adresního řádku
+
+// 3) vyměň code za refresh token a ulož ho do konfigurace
+echo OAuth::exchangeCode($clientId, $clientSecret, $code), PHP_EOL;
+```
+
+> Access token má platnost 1 hodinu. Klient ho získá jednou a reusuje; s PSR-16 cache i mezi requesty.
+
+## Použití
+
+```php
+use Ages\GoogleGateway\Config\GoogleAdsConfig;
+use Ages\GoogleGateway\GoogleGateway;
+
+$gateway = new GoogleGateway(new GoogleAdsConfig(
+    developerToken: '…',
+    clientId: '….apps.googleusercontent.com',
+    clientSecret: '…',
+    refreshToken: '…',
+    customerId: '123-456-7890',
+) /*, $psr16cache */);
+```
+
+### Náklady za období
+
+Data se vrací rovnou (žádné čekání na report jako u Skliku). Období je po dnech včetně krajních
+v časové zóně účtu. Peníze jsou v měně účtu (`getCustomer()->currencyCode`).
+
+```php
+$m = $gateway->getCosts(new DateTimeImmutable('2026-09-01'), new DateTimeImmutable('2026-09-30'));   // Metrics
+echo $m->cost;          // útrata
+echo $m->impressions;   // zobrazení
+echo $m->clicks;        // prokliky
+echo $m->avgCpc();      // průměrné CPC
+echo $m->ctr();         // CTR (0–1)
+echo $m->conversions, ' ', $m->conversionsValue, ' ', $m->pno(), ' ', $m->roas();
+```
+
+### Rozpad po obdobích
+
+API seskupuje samo (`segments.date|week|month|quarter|year`); řádek nese datum začátku období
+(den, pondělí, 1. den měsíce / kvartálu / roku). Období bez zobrazení chybí.
+
+```php
+use Ages\GoogleGateway\Enum\Granularity;
+
+foreach ($gateway->getCostsBreakdown($from, $to, Granularity::Monthly) as $row) {   // list<CostRow>
+    echo $row->date->format('Y-m'), ': ', $row->metrics->cost, ' Kč, ', $row->metrics->clicks, ' prokliků', PHP_EOL;
+}
+```
+
+### Náklady po kampaních
+
+Seřazené od nejvyšší útraty — hodí se pro rozdělení např. na Shopping / Performance Max a ostatní kampaně.
+
+```php
+foreach ($gateway->getCampaignCosts($from, $to) as $campaign) {   // list<CampaignCost>
+    echo $campaign->name, ' [', $campaign->channelType, ']: ', $campaign->metrics->cost, PHP_EOL;
+    // channelType: SEARCH, SHOPPING, PERFORMANCE_MAX, DISPLAY, VIDEO, DEMAND_GEN…
+}
+```
+
+### Účet a rozpočet
+
+```php
+$customer = $gateway->ads()->getCustomer();          // id, name, currencyCode, timeZone
+$ids = $gateway->ads()->listAccessibleCustomers();   // účty dostupné pro uživatele refresh tokenu
+
+foreach ($gateway->ads()->getAccountBudgets() as $budget) {   // list<AccountBudget>
+    echo $budget->spendingLimit, ' / ', $budget->amountServed, ' → zbývá ', $budget->remaining() ?? '∞', PHP_EOL;
+}
+```
+
+> **Kredit:** Google na rozdíl od Skliku nemá předplacený kredit dostupný přes API. Account budget
+> existuje jen u účtů s **měsíční fakturací**; účet placený automaticky kartou ho nemá (prázdný seznam)
+> a zůstatek ručních plateb API nevrací.
+
+### Vlastní GAQL dotaz
+
+```php
+$rows = $gateway->ads()->search(
+    "SELECT ad_group.name, metrics.cost_micros FROM ad_group WHERE segments.date DURING LAST_7_DAYS",
+);
+```
+
+Pole a jejich kombinace: [Google Ads Query Builder](https://developers.google.com/google-ads/api/fields/v26/overview_query_builder).
+Řádky mají camelCase klíče (`metrics.costMicros`), int64 hodnoty přichází jako řetězce, peníze v mikrojednotkách (÷ 1 000 000).
+
+## Integrace do Nette projektu (neon)
+
+```neon
+services:
+    googleAdsConfig: Ages\GoogleGateway\Config\GoogleAdsConfig(
+        developerToken: '…'
+        clientId: '…'
+        clientSecret: '…'
+        refreshToken: '…'
+        customerId: '123-456-7890'
+        # loginCustomerId: '111-222-3333'   # jen při přístupu přes manažerský účet (MCC)
+        # apiVersion: v26                   # výchozí hodnota
+    )
+    - Ages\GoogleGateway\GoogleGateway(@googleAdsConfig)
+```
+
+> Klient se sestaví líně až při prvním volání — chybějící údaje (`GoogleException`) se projeví až tehdy,
+> ne při startu aplikace. Volitelný druhý argument je **PSR-16** cache pro sdílení access tokenu.
+
+## Verze API
+
+Google vydává novou verzi zhruba čtyřikrát ročně a starší vypíná přibližně po roce. Výchozí je `v26`
+(`GoogleAdsConfig::ApiVersion`); při vypnutí verze stačí zvednout `apiVersion` v konfiguraci, dotazy
+v balíčku používají jen stabilní pole.
+
+## Chyby
+
+- `Ages\GoogleGateway\Exception\GoogleApiException` — nesprávný HTTP status API nebo OAuth
+  (`->statusCode`, `->status` např. `PERMISSION_DENIED`, `->requestId` pro podporu Googlu, `->responseBody`)
+- `Ages\GoogleGateway\Exception\GoogleException` — chybějící konfigurace, síťová / parsovací chyba (základní typ)
+
+Časté příčiny: `DEVELOPER_TOKEN_NOT_APPROVED` (token má jen *Test* úroveň), `USER_PERMISSION_DENIED`
+(chybí `loginCustomerId` u přístupu přes MCC), `invalid_grant` (refresh token vypršel nebo byl odvolán).
+
+## Architektura
+
+```
+src/
+├── Ads/
+│   ├── AdsApi.php                    GAQL dotazy – náklady, rozpad, kampaně, účet, rozpočty
+│   └── Response/
+│       ├── Metrics.php               zobrazení, prokliky, útrata, konverze + CPC, CTR, PNO, ROAS
+│       ├── CostRow.php               období + Metrics
+│       ├── CampaignCost.php          kampaň + Metrics
+│       ├── Customer.php              účet (měna, časová zóna)
+│       └── AccountBudget.php         rozpočet účtu (měsíční fakturace)
+├── Auth/
+│   ├── AccessToken.php
+│   └── OAuth.php                     jednorázové získání refresh tokenu
+├── Config/
+│   └── GoogleAdsConfig.php
+├── Enum/
+│   └── Granularity.php               Daily / Weekly / Monthly / Quarterly / Yearly
+├── Exception/
+│   ├── GoogleException.php
+│   └── GoogleApiException.php
+├── Http/
+│   └── GoogleAdsClient.php           OAuth token, hlavičky, searchStream, opakování
+└── GoogleGateway.php                 vstupní bod – ads(), getCosts(), getCostsBreakdown(), getCampaignCosts()
+```

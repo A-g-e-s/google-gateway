@@ -1,0 +1,26 @@
+{
+    "name": "ages/google-gateway",
+    "description": "PHP client for the Google Ads API (REST) – costs, campaign statistics and account budgets",
+    "type": "library",
+    "require": {
+        "php": ">=8.4",
+        "guzzlehttp/guzzle": "^7.9"
+    },
+    "require-dev": {
+        "phpstan/phpstan": "^2.0",
+        "psr/simple-cache": "^3.0"
+    },
+    "suggest": {
+        "psr/simple-cache": "Provide a PSR-16 cache to persist the access token across requests (recommended)"
+    },
+    "autoload": {
+        "psr-4": {
+            "Ages\\GoogleGateway\\": "src/"
+        }
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "scripts": {
+        "phpstan": "phpstan analyse"
+    }
+}
