@@ -89,7 +89,8 @@ class AdsApi
         $rows = $this->client->search(
             $this->customerId($customerId),
             sprintf(
-                'SELECT campaign.id, campaign.name, campaign.status, campaign.advertising_channel_type, %s FROM campaign WHERE %s ORDER BY metrics.cost_micros DESC',
+                // without the impressions filter the API returns every campaign, removed ones with zero metrics
+                'SELECT campaign.id, campaign.name, campaign.status, campaign.advertising_channel_type, %s FROM campaign WHERE %s AND metrics.impressions > 0 ORDER BY metrics.cost_micros DESC',
                 self::MetricFields,
                 self::period($from, $to),
             ),

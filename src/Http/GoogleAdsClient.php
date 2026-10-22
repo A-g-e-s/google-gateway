@@ -15,8 +15,8 @@ use Psr\SimpleCache\CacheInterface;
 /**
  * Low-level HTTP client for the Google Ads REST API.
  *
- * Handles OAuth (refresh token -> access token), token caching, the required
- * `developer-token` / `login-customer-id` headers and retries on 429 / 503.
+ * Handles OAuth (refresh token -> access token), token caching, the optional
+ * `login-customer-id` (and legacy `developer-token`) headers and retries on 429 / 503.
  */
 class GoogleAdsClient
 {
@@ -30,7 +30,7 @@ class GoogleAdsClient
         private readonly ?CacheInterface $cache = null,
         ?Client $httpClient = null,
     ) {
-        foreach (['developerToken', 'clientId', 'clientSecret', 'refreshToken'] as $field) {
+        foreach (['clientId', 'clientSecret', 'refreshToken'] as $field) {
             if ($config->{$field} === '') {
                 throw new GoogleException("Google Ads: {$field} is not configured.");
             }
@@ -102,9 +102,11 @@ class GoogleAdsClient
     {
         $headers = [
             'Authorization' => 'Bearer ' . $this->getAccessToken(),
-            'developer-token' => $this->config->developerToken,
             'Accept' => 'application/json',
         ];
+        if ($this->config->developerToken !== null && $this->config->developerToken !== '') {
+            $headers['developer-token'] = $this->config->developerToken;
+        }
         if ($this->config->loginCustomerId !== null && $this->config->loginCustomerId !== '') {
             $headers['login-customer-id'] = self::customerId($this->config->loginCustomerId);
         }

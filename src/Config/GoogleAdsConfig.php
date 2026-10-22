@@ -8,8 +8,9 @@ namespace Ages\GoogleGateway\Config;
  * Configuration for the Google Ads API (REST) client.
  *
  * Authentication is OAuth 2.0: the refresh token is exchanged for a short-lived
- * access token (valid ~1 hour) which is sent as a Bearer token together with the
- * developer token. See README for how to obtain all the credentials.
+ * access token (valid ~1 hour) which is sent as a Bearer token. API access level
+ * (Test / Explorer / Basic / Standard) belongs to the Google Cloud project of the
+ * OAuth client – developer tokens were sunset on 2026-09-09. See README.
  */
 readonly class GoogleAdsConfig
 {
@@ -20,9 +21,7 @@ readonly class GoogleAdsConfig
     public const string ApiVersion = 'v26';
 
     public function __construct(
-        /** Developer token from the Google Ads manager account (Tools › API Center). */
-        public string $developerToken,
-        /** OAuth 2.0 client ID (Google Cloud Console › Credentials). */
+        /** OAuth 2.0 client ID (Google Cloud Console › Google Auth Platform › Clients). */
         public string $clientId,
         /** OAuth 2.0 client secret. */
         public string $clientSecret,
@@ -38,6 +37,11 @@ readonly class GoogleAdsConfig
          * when the user has access to the client account only via a manager account.
          */
         public ?string $loginCustomerId = null,
+        /**
+         * Legacy developer token. Sunset on 2026-09-09 – the API ignores it; it is sent
+         * only when set (for older API versions / tooling that still expects it).
+         */
+        public ?string $developerToken = null,
         /** API version, e.g. `v26`. Google sunsets versions roughly a year after release. */
         public string $apiVersion = self::ApiVersion,
         /** Base API URL, without trailing slash. */

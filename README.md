@@ -16,14 +16,44 @@ composer require ages/google-gateway
 
 ## Přístupové údaje
 
-Google Ads API potřebuje čtyři údaje + ID účtu:
+Od **9. 9. 2026 Google zrušil developer tokeny**. Přístup k API (a jeho úroveň) teď patří
+**Google Cloud projektu**, ve kterém je OAuth klient — vše se nastavuje v [Google Cloud Console](https://console.cloud.google.com/).
+Hlavičku `developer-token` API ignoruje; v konfiguraci je jen volitelná (`developerToken`) pro starší nástroje.
+
+Potřebné údaje: `clientId`, `clientSecret`, `refreshToken` + ID účtu (`customerId`).
+
+### 1. Projekt a Google Ads API
+
+1. **Nový projekt** (např. *Wolfio Ads*) — samostatný, ať se úroveň přístupu a kvóty nemíchají s jinými API.
+2. **APIs & Services › Library** › *Google Ads API* › **Enable**. Projekt tím dostane úroveň **Test** (jen testovací účty).
+3. **Google Ads API › Overview** (`/google/ads-apis/overview`) › *Upgrade access level* › **Apply for access** — úroveň **Explorer**
+   (produkční účty, 2 880 operací/den, Google schvaluje většinou automaticky). Vyšší úrovně:
+
+| Úroveň | Účty | Limit operací/den |
+|--------|------|-------------------|
+| Test | jen testovací | 15 000 (test) |
+| Explorer | testovací i produkční | 2 880 |
+| Basic | testovací i produkční | 15 000 |
+| Standard | testovací i produkční | neomezeno |
+
+> Pro denní stahování nákladů pár účtů stačí Explorer (jeden dotaz = jedna operace).
+
+### 2. OAuth klient
+
+1. **Google Auth Platform › Overview › Get started**: název aplikace, support e-mail, typ **External**
+   (Internal jen u Google Workspace), kontaktní e-mail, souhlas s *User Data Policy*.
+2. **Clients › Create client** › typ **Desktop app** → `clientId` a `clientSecret`.
+   **Secret se zobrazí jen jednou** — hned ho ulož (nebo stáhni JSON).
+3. **Audience**: v režimu *Testing* přidej mezi **Test users** účet, který má přístup ke Google Ads,
+   ale **refresh token pak po 7 dnech vyprší**. Pro trvalý provoz aplikaci **Publish app** (*In production*) —
+   u neověřené aplikace se při souhlasu zobrazí varování „Google hasn't verified this app“ (*Advanced › Go to …*), funguje to do 100 uživatelů a ověření kvůli vlastnímu účtu není potřeba.
+
+### 3. Refresh token a ID účtu
 
 | Údaj | Kde ho získat |
 |------|---------------|
-| `developerToken` | Manažerský účet Google Ads (MCC) › **Nástroje › Centrum API**. Nový token má úroveň *Test* (jen testovací účty) — pro ostrý účet požádej o **Basic access** (schválení trvá pár dní). Developer token jde vydat jen v MCC účtu; když ho nemáš, založ MCC a propoj s ním účet e-shopu. |
-| `clientId`, `clientSecret` | [Google Cloud Console](https://console.cloud.google.com/) › nový projekt › **APIs & Services › Library** › zapnout *Google Ads API* › **Credentials › Create credentials › OAuth client ID** › typ **Desktop app**. Na *OAuth consent screen* přidej svůj e-mail mezi testovací uživatele (nebo aplikaci publikuj — u testovací aplikace refresh token po 7 dnech vyprší). |
-| `refreshToken` | Jednorázově přes `OAuth` helper (níže) pod uživatelem, který má přístup k účtu Google Ads. |
-| `customerId` | ID účtu Google Ads vpravo nahoře v rozhraní (`123-456-7890`, pomlčky nevadí). |
+| `refreshToken` | Jednorázově přes `OAuth` helper (níže) pod Google účtem, který má přístup k účtu Google Ads. |
+| `customerId` | ID účtu Google Ads vpravo nahoře v rozhraní (`123-456-7890`, pomlčky nevadí), případně `listAccessibleCustomers()`. |
 | `loginCustomerId` | ID manažerského účtu (MCC), **pokud** máš k účtu přístup přes MCC. Při přímém přístupu nevyplňuj. |
 
 ### Získání refresh tokenu
@@ -50,7 +80,6 @@ use Ages\GoogleGateway\Config\GoogleAdsConfig;
 use Ages\GoogleGateway\GoogleGateway;
 
 $gateway = new GoogleGateway(new GoogleAdsConfig(
-    developerToken: '…',
     clientId: '….apps.googleusercontent.com',
     clientSecret: '…',
     refreshToken: '…',
@@ -128,7 +157,6 @@ Pole a jejich kombinace: [Google Ads Query Builder](https://developers.google.co
 ```neon
 services:
     googleAdsConfig: Ages\GoogleGateway\Config\GoogleAdsConfig(
-        developerToken: '…'
         clientId: '…'
         clientSecret: '…'
         refreshToken: '…'
@@ -154,8 +182,10 @@ v balíčku používají jen stabilní pole.
   (`->statusCode`, `->status` např. `PERMISSION_DENIED`, `->requestId` pro podporu Googlu, `->responseBody`)
 - `Ages\GoogleGateway\Exception\GoogleException` — chybějící konfigurace, síťová / parsovací chyba (základní typ)
 
-Časté příčiny: `DEVELOPER_TOKEN_NOT_APPROVED` (token má jen *Test* úroveň), `USER_PERMISSION_DENIED`
-(chybí `loginCustomerId` u přístupu přes MCC), `invalid_grant` (refresh token vypršel nebo byl odvolán).
+Časté příčiny:
+- `AUTHORIZATION_ERROR` / přístup jen k testovacím účtům — projekt OAuth klienta má úroveň *Test*; požádej o *Explorer* (Google Ads API › Overview)
+- `USER_PERMISSION_DENIED` — Google účet z refresh tokenu nemá přístup k účtu, nebo chybí `loginCustomerId` u přístupu přes MCC
+- `invalid_grant` — refresh token vypršel (aplikace v režimu *Testing* = 7 dní) nebo byl odvolán
 
 ## Architektura
 
