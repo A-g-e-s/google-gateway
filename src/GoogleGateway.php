@@ -78,6 +78,20 @@ class GoogleGateway
     }
 
     /**
+     * Google Ads costs per campaign and day / week / month (`date` = start of the period).
+     *
+     * @return list<CampaignCost>
+     */
+    public function getCampaignCostsBreakdown(
+        DateTimeInterface $from,
+        DateTimeInterface $to,
+        Granularity $granularity = Granularity::Daily,
+        ?string $customerId = null,
+    ): array {
+        return $this->ads()->getCampaignCostsBreakdown($from, $to, $granularity, $customerId);
+    }
+
+    /**
      * Direct access to the low-level client for endpoints not yet wrapped.
      */
     public function client(): GoogleAdsClient

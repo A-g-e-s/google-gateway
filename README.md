@@ -124,6 +124,11 @@ foreach ($gateway->getCampaignCosts($from, $to) as $campaign) {   // list<Campai
     echo $campaign->name, ' [', $campaign->channelType, ']: ', $campaign->metrics->cost, PHP_EOL;
     // channelType: SEARCH, SHOPPING, PERFORMANCE_MAX, DISPLAY, VIDEO, DEMAND_GEN…
 }
+
+// po kampaních a dnech (nebo týdnech, měsících…) jedním dotazem – $campaign->date = začátek období
+foreach ($gateway->getCampaignCostsBreakdown($from, $to, Granularity::Daily) as $campaign) {
+    echo $campaign->date->format('Y-m-d'), ' ', $campaign->name, ': ', $campaign->metrics->cost, PHP_EOL;
+}
 ```
 
 ### Účet a rozpočet

@@ -96,7 +96,34 @@ class AdsApi
             ),
         );
 
-        return array_map(CampaignCost::fromRow(...), $rows);
+        return array_map(static fn (array $row): CampaignCost => CampaignCost::fromRow($row), $rows);
+    }
+
+    /**
+     * Costs per campaign and day / week / month… ({@see CampaignCost::$date}), ordered by date.
+     * Campaigns without any impression in a period are omitted.
+     *
+     * @return list<CampaignCost>
+     */
+    public function getCampaignCostsBreakdown(
+        DateTimeInterface $from,
+        DateTimeInterface $to,
+        Granularity $granularity = Granularity::Daily,
+        ?string $customerId = null,
+    ): array {
+        $segment = 'segments.' . $granularity->value;
+        $rows = $this->client->search(
+            $this->customerId($customerId),
+            sprintf(
+                'SELECT %s, campaign.id, campaign.name, campaign.status, campaign.advertising_channel_type, %s FROM campaign WHERE %s AND metrics.impressions > 0 ORDER BY %s',
+                $segment,
+                self::MetricFields,
+                self::period($from, $to),
+                $segment,
+            ),
+        );
+
+        return array_map(static fn (array $row): CampaignCost => CampaignCost::fromRow($row, $granularity), $rows);
     }
 
     /**

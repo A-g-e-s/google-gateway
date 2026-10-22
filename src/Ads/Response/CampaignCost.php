@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 namespace Ages\GoogleGateway\Ads\Response;
 
+use Ages\GoogleGateway\Enum\Granularity;
+use DateTimeImmutable;
+
 /**
- * Metrics of one campaign for a period.
+ * Metrics of one campaign for a period (or one period of a time breakdown).
  */
 readonly class CampaignCost
 {
@@ -17,13 +20,15 @@ readonly class CampaignCost
         /** `SEARCH`, `SHOPPING`, `PERFORMANCE_MAX`, `DISPLAY`, `VIDEO`, `DEMAND_GEN`… */
         public string $channelType,
         public Metrics $metrics,
+        /** Start of the period in a time breakdown ({@see AdsApi::getCampaignCostsBreakdown()}), otherwise null. */
+        public ?DateTimeImmutable $date = null,
     ) {
     }
 
     /**
-     * @param array<string, mixed> $row A GAQL row with `campaign` and `metrics`.
+     * @param array<string, mixed> $row A GAQL row with `campaign`, `metrics` and optionally `segments`.
      */
-    public static function fromRow(array $row): self
+    public static function fromRow(array $row, ?Granularity $granularity = null): self
     {
         $campaign = is_array($row['campaign'] ?? null) ? $row['campaign'] : [];
         /** @var array<string, mixed> $metrics */
@@ -35,6 +40,7 @@ readonly class CampaignCost
             status: is_string($campaign['status'] ?? null) ? $campaign['status'] : '',
             channelType: is_string($campaign['advertisingChannelType'] ?? null) ? $campaign['advertisingChannelType'] : '',
             metrics: Metrics::fromArray($metrics),
+            date: $granularity !== null ? CostRow::fromRow($row, $granularity)->date : null,
         );
     }
 }
